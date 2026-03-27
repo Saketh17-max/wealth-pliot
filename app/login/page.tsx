@@ -1,27 +1,48 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signInWithPopup } from "firebase/auth";
+import { signInWithPopup, onAuthStateChanged } from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase";
 import { TrendingUp, Shield, Target, BarChart3, Zap } from "lucide-react";
 
 export default function LoginPage() {
     const router = useRouter();
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [signingIn, setSigningIn] = useState(false);
     const [error, setError] = useState("");
+    const [popupBlocked, setPopupBlocked] = useState(false);
+
+    // Listen to auth state — if already signed in, go to dashboard
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            if (user) {
+                router.replace("/dashboard");
+            } else {
+                setLoading(false);
+            }
+        });
+        return () => unsubscribe();
+    }, [router]);
 
     async function handleGoogleSignIn() {
         try {
-            setLoading(true);
+            setSigningIn(true);
             setError("");
+            setPopupBlocked(false);
             await signInWithPopup(auth, googleProvider);
-            router.replace("/dashboard");
+            // onAuthStateChanged will fire and redirect to /dashboard
         } catch (err: unknown) {
-            setError("Sign-in failed. Please try again.");
-            console.error(err);
-        } finally {
-            setLoading(false);
+            const code = (err as { code?: string })?.code;
+            if (code === "auth/popup-blocked") {
+                setPopupBlocked(true);
+            } else if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+                // User closed popup — silently ignore
+            } else {
+                setError(`Sign-in failed: ${code ?? "unknown error"}`);
+                console.error(err);
+            }
+            setSigningIn(false);
         }
     }
 
@@ -33,9 +54,20 @@ export default function LoginPage() {
         { icon: Zap, text: "Smart SIP & lumpsum calculator" },
     ];
 
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center hero-bg">
+                <div className="text-center">
+                    <div className="text-4xl font-bold gradient-text mb-4">₹</div>
+                    <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <p className="text-slate-400 text-sm mt-3">Loading WealthPilot...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen hero-bg flex items-center justify-center p-4">
-            {/* Background decorations */}
             <div className="fixed inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute top-1/4 -left-32 w-96 h-96 rounded-full bg-indigo-600/10 blur-3xl" />
                 <div className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full bg-emerald-500/10 blur-3xl" />
@@ -82,6 +114,18 @@ export default function LoginPage() {
                         <p className="text-slate-400 text-sm mt-1">Sign in to access your financial dashboard</p>
                     </div>
 
+                    {popupBlocked && (
+                        <div className="bg-amber-500/15 border border-amber-500/30 rounded-xl p-4 text-amber-300 text-sm">
+                            <p className="font-semibold mb-1">⚠️ Popup Blocked</p>
+                            <p>Your browser blocked the sign-in popup. Please:</p>
+                            <ol className="list-decimal list-inside mt-2 space-y-1 text-xs">
+                                <li>Click the popup blocked icon in your address bar</li>
+                                <li>Select <strong>&quot;Always allow popups from localhost&quot;</strong></li>
+                                <li>Click the button below again</li>
+                            </ol>
+                        </div>
+                    )}
+
                     {error && (
                         <div className="bg-rose-500/15 border border-rose-500/30 rounded-xl p-3 text-rose-300 text-sm text-center">
                             {error}
@@ -90,10 +134,10 @@ export default function LoginPage() {
 
                     <button
                         onClick={handleGoogleSignIn}
-                        disabled={loading}
+                        disabled={signingIn}
                         className="w-full flex items-center justify-center gap-3 bg-white text-gray-800 font-semibold px-6 py-3.5 rounded-xl hover:bg-gray-50 transition-all duration-200 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {loading ? (
+                        {signingIn ? (
                             <div className="w-5 h-5 border-2 border-gray-400 border-t-gray-800 rounded-full animate-spin" />
                         ) : (
                             <svg viewBox="0 0 24 24" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
@@ -103,14 +147,12 @@ export default function LoginPage() {
                                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
                             </svg>
                         )}
-                        {loading ? "Signing in..." : "Continue with Google"}
+                        {signingIn ? "Opening Google Sign-in..." : "Continue with Google"}
                     </button>
 
                     <div className="text-center">
                         <p className="text-xs text-slate-500">
                             By signing in, you agree to our Terms of Service and Privacy Policy.
-                            <br />
-                            <span className="text-amber-400/80">⚠️ Demo mode — Firebase not configured</span>
                         </p>
                     </div>
 
